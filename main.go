@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -15,6 +16,8 @@ const (
 	GET     = "GET"
 	COMMAND = "COMMAND"
 	PING    = "PING"
+	DELETE  = "DELETE"
+	EXISTS  = "EXISTS"
 )
 
 var allowedCommands = []string{
@@ -22,9 +25,12 @@ var allowedCommands = []string{
 	GET,
 	PING,
 	COMMAND,
+	DELETE,
+	EXISTS,
 }
 
 var mmap = make(map[string]string)
+var dbMutex sync.RWMutex
 
 type Value struct {
 	RespType       string
@@ -69,7 +75,8 @@ func handleConn(conn net.Conn) {
 		v := Value{}
 		b1, err := reader.ReadByte()
 		if string(b1) != "*" {
-			panic("the command is not an array")
+			// panic("the command is not an array")
+			continue
 		}
 		v.RespType = "*"
 		if err != nil {
@@ -80,7 +87,7 @@ func handleConn(conn net.Conn) {
 			panic(err)
 		}
 
-		fmt.Println((string(args)))
+		// fmt.Println((string(args)))
 		numArgs, err := strconv.Atoi(string(args))
 		if err != nil {
 			panic(err)
@@ -92,7 +99,7 @@ func handleConn(conn net.Conn) {
 		}
 		response := handleCase(v.ProcessedArray)
 		// fmt.Println(v)
-		fmt.Printf("%+v\n", v)
+		// fmt.Printf("%+v\n", v)
 		// conn.Write([]byte("+OK\r\n"))
 		conn.Write([]byte(response))
 	}
@@ -108,8 +115,11 @@ func checkAllowedCommands(command string) bool {
 }
 
 func handleCase(commands []string) string {
+	// dbMutex.RLock()
+	// fmt.Println(mmap)
+	// dbMutex.RUnlock()
 	command := commands[0]
-	fmt.Println(command)
+	// fmt.Println(command)
 	if checkAllowedCommands(command) == false {
 		return "-ERR command not supported\r\n"
 	}
@@ -121,7 +131,9 @@ func handleCase(commands []string) string {
 			if len(commands) > 3 {
 				return "+SET commands only support 2 arguments, key and value\r\n"
 			}
+			dbMutex.Lock()
 			mmap[commands[1]] = commands[2]
+			dbMutex.Unlock()
 			return "+DONE\r\n"
 		}
 	case GET:
@@ -130,13 +142,40 @@ func handleCase(commands []string) string {
 				if len(commands) > 2 {
 					return "+GET commands only support 1 argument, key\r\n"
 				}
+				dbMutex.RLock()
 				result, ok := mmap[commands[1]]
+				dbMutex.RUnlock()
 				if ok {
 					return fmt.Sprintf("+%s\r\n", result)
 				}
 				return "+KEY does not exist\r\n"
 			}
 		}
+	case DELETE:
+		{
+			if len(commands) > 2 {
+				return "+DELETE commands only support 1 argument, key\r\n"
+			}
+			dbMutex.Lock()
+			delete(mmap, commands[1])
+			dbMutex.Unlock()
+			return "+DONE\r\n"
+		}
+	case EXISTS:
+		{
+			dbMutex.RLock()
+			inputKeys := commands[1:]
+			existsCount := 0
+			for _, val := range inputKeys {
+				_, exists := mmap[val]
+				if exists {
+					existsCount++
+				}
+			}
+			dbMutex.RUnlock()
+			return fmt.Sprintf("+%v\r\n", existsCount)
+		}
+
 	}
 
 	return "+OK\r\n"
@@ -167,18 +206,19 @@ func parseBulkStrings(reader *bufio.Reader, v *Value) {
 	if err != nil {
 		panic(err)
 	}
-	args, err := reader.ReadByte()
+	//this assumes that the lenght of the argument is in single digit but that is actully wrong
+	// args, err := reader.ReadByte()
+	args, err := reader.ReadString('\n')
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println((string(args)))
-	numArgs, err := strconv.Atoi(string(args))
+	// fmt.Println(args)
+	numArgs, err := strconv.Atoi(strings.TrimSpace(args))
+	// fmt.Printf("this is numArgs %+v\n", numArgs)
 	if err != nil {
 		panic(err)
 	}
 	buffer := make([]byte, numArgs)
-	reader.ReadByte()
-	reader.ReadByte()
 	res, err := io.ReadFull(reader, buffer)
 	command := string(buffer)
 	v.ProcessedArray = append(v.ProcessedArray, strings.ToUpper(command))
@@ -193,7 +233,7 @@ func parseBulkStrings(reader *bufio.Reader, v *Value) {
 	v.TypeArray = append(v.TypeArray, ele)
 	reader.ReadByte()
 	reader.ReadByte()
-	fmt.Println(string(buffer))
+	// fmt.Println(string(buffer))
 }
 
 func main() {
@@ -210,7 +250,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		handleConn(conn)
+		go handleConn(conn)
 	}
 
 }
