@@ -16,7 +16,7 @@ const (
 	GET     = "GET"
 	COMMAND = "COMMAND"
 	PING    = "PING"
-	DELETE  = "DELETE"
+	DEL     = "DEL"
 	EXISTS  = "EXISTS"
 )
 
@@ -25,7 +25,7 @@ var allowedCommands = []string{
 	GET,
 	PING,
 	COMMAND,
-	DELETE,
+	DEL,
 	EXISTS,
 }
 
@@ -82,18 +82,17 @@ func handleConn(conn net.Conn) {
 		if err != nil {
 			panic(err)
 		}
-		args, err := reader.ReadByte()
+		// args, err := reader.ReadByte()
+		args, err := reader.ReadString('\n')
 		if err != nil {
 			panic(err)
 		}
 
 		// fmt.Println((string(args)))
-		numArgs, err := strconv.Atoi(string(args))
+		numArgs, err := strconv.Atoi(strings.TrimSpace(args))
 		if err != nil {
 			panic(err)
 		}
-		reader.ReadByte()
-		reader.ReadByte()
 		for range numArgs {
 			parseBulkStrings(reader, &v)
 		}
@@ -129,37 +128,37 @@ func handleCase(commands []string) string {
 	case SET:
 		{
 			if len(commands) > 3 {
-				return "+SET commands only support 2 arguments, key and value\r\n"
+				return "-ERR SET commands only support 2 arguments, key and value\r\n"
 			}
 			dbMutex.Lock()
 			mmap[commands[1]] = commands[2]
 			dbMutex.Unlock()
-			return "+DONE\r\n"
+			return "+OK\r\n"
 		}
 	case GET:
 		{
 			{
 				if len(commands) > 2 {
-					return "+GET commands only support 1 argument, key\r\n"
+					return "-ERR GET commands only support 1 argument, key\r\n"
 				}
 				dbMutex.RLock()
 				result, ok := mmap[commands[1]]
 				dbMutex.RUnlock()
 				if ok {
-					return fmt.Sprintf("+%s\r\n", result)
+					return fmt.Sprintf("$%d\r\n%s\r\n", len(result), result)
 				}
-				return "+KEY does not exist\r\n"
+				return "$-1\r\n"
 			}
 		}
-	case DELETE:
+	case DEL:
 		{
 			if len(commands) > 2 {
-				return "+DELETE commands only support 1 argument, key\r\n"
+				return "-ERR DEL commands only support 1 argument, key\r\n"
 			}
 			dbMutex.Lock()
 			delete(mmap, commands[1])
 			dbMutex.Unlock()
-			return "+DONE\r\n"
+			return ":1\r\n"
 		}
 	case EXISTS:
 		{
@@ -173,7 +172,7 @@ func handleCase(commands []string) string {
 				}
 			}
 			dbMutex.RUnlock()
-			return fmt.Sprintf("+%v\r\n", existsCount)
+			return fmt.Sprintf(":%v\r\n", existsCount)
 		}
 
 	}

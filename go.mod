@@ -1,3 +1,3 @@
-module github.com/pushkar1713/gokv
+module github.com/pushkar1713/go-redis
 
 go 1.25.5
