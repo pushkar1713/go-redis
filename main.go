@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ var allowedCommands = []string{
 
 var mmap = make(map[string]string)
 var dbMutex sync.RWMutex
+var aof = false
 
 type Value struct {
 	RespType       string
@@ -39,7 +41,7 @@ type Value struct {
 	ProcessedArray []string
 }
 
-func handleConn(conn net.Conn) {
+func handleConn(conn net.Conn, file *os.File) {
 	defer conn.Close()
 	// buffer := make([]byte, 1024)
 	// var array []string
@@ -96,7 +98,7 @@ func handleConn(conn net.Conn) {
 		for range numArgs {
 			parseBulkStrings(reader, &v)
 		}
-		response := handleCase(v.ProcessedArray)
+		response := handleCase(v.ProcessedArray, file)
 		// fmt.Println(v)
 		// fmt.Printf("%+v\n", v)
 		// conn.Write([]byte("+OK\r\n"))
@@ -113,12 +115,13 @@ func checkAllowedCommands(command string) bool {
 	return slices.Contains(allowedCommands, command)
 }
 
-func handleCase(commands []string) string {
+func handleCase(commands []string, file *os.File) string {
 	// dbMutex.RLock()
 	// fmt.Println(mmap)
 	// dbMutex.RUnlock()
-	command := commands[0]
-	// fmt.Println(command)
+	command := strings.ToUpper(commands[0])
+	aofLog := strings.Join(commands, " ") + "\r\n"
+	fmt.Println(command)
 	if checkAllowedCommands(command) == false {
 		return "-ERR command not supported\r\n"
 	}
@@ -133,6 +136,10 @@ func handleCase(commands []string) string {
 			dbMutex.Lock()
 			mmap[commands[1]] = commands[2]
 			dbMutex.Unlock()
+			_, err := file.Write([]byte(aofLog))
+			if err != nil {
+				panic(err)
+			}
 			return "+OK\r\n"
 		}
 	case GET:
@@ -213,26 +220,57 @@ func parseBulkStrings(reader *bufio.Reader, v *Value) {
 	}
 	// fmt.Println(args)
 	numArgs, err := strconv.Atoi(strings.TrimSpace(args))
+	_ = numArgs
 	// fmt.Printf("this is numArgs %+v\n", numArgs)
 	if err != nil {
 		panic(err)
 	}
 	buffer := make([]byte, numArgs)
 	res, err := io.ReadFull(reader, buffer)
-	command := string(buffer)
-	v.ProcessedArray = append(v.ProcessedArray, strings.ToUpper(command))
+	_ = res
+	// res, err := reader.ReadString('\n')
 	if err != nil {
-		_ = res
 		panic(err)
 	}
+	command := string(buffer)
+	// set := "set"
+	// if strings.Contains(command, set) {
+	// 	_, err := file.Write([]byte(res))
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// }
+	v.ProcessedArray = append(v.ProcessedArray, command)
 	ele := Value{
 		RespType:   string(b1),
-		TypeString: string(buffer),
+		TypeString: string(command),
 	}
 	v.TypeArray = append(v.TypeArray, ele)
 	reader.ReadByte()
 	reader.ReadByte()
 	// fmt.Println(string(buffer))
+}
+
+func aofRestore(file *os.File) {
+	info, err := file.Stat()
+	if err != nil {
+		panic(err)
+	}
+	if info.Size() == 0 {
+		fmt.Println("aof file is empty")
+		return
+	}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		commands := strings.Split(line, " ")
+		command1 := strings.ToUpper(commands[0])
+		set := "SET"
+		if strings.Contains(command1, set) {
+			mmap[commands[1]] = commands[2]
+		}
+	}
+
 }
 
 func main() {
@@ -241,6 +279,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	file, err := os.OpenFile("aof.txt", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(mmap)
+	aofRestore(file)
+	fmt.Println(mmap)
+
 	defer listener.Close()
 	fmt.Printf("tcp server listening on port %+v\n", listener.Addr())
 
@@ -249,7 +295,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		go handleConn(conn)
+		go handleConn(conn, file)
 	}
 
 }
