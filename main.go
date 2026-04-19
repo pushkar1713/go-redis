@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const (
@@ -32,13 +34,20 @@ var allowedCommands = []string{
 
 var mmap = make(map[string]string)
 var dbMutex sync.RWMutex
-var aof = false
+var aofBuffer = []string{}
+var lock atomic.Bool
 
 type Value struct {
 	RespType       string
 	TypeString     string
 	TypeArray      []Value
 	ProcessedArray []string
+}
+
+func fsync(s []string, file *os.File) {
+	for _, v := range s {
+		file.Write([]byte(v))
+	}
 }
 
 func handleConn(conn net.Conn, file *os.File) {
@@ -136,6 +145,10 @@ func handleCase(commands []string, file *os.File) string {
 			dbMutex.Lock()
 			mmap[commands[1]] = commands[2]
 			dbMutex.Unlock()
+			if lock.Load() {
+				aofBuffer = append(aofBuffer, aofLog)
+				return "+OK\r\n"
+			}
 			_, err := file.Write([]byte(aofLog))
 			if err != nil {
 				panic(err)
@@ -286,6 +299,16 @@ func main() {
 	fmt.Println(mmap)
 	aofRestore(file)
 	fmt.Println(mmap)
+
+	time.AfterFunc(5*time.Second, func() {
+		fmt.Println("doing the fsync compaction")
+		if !lock.CompareAndSwap(false, true) {
+			return
+		}
+		defer lock.Store(false)
+		aofCompaction(mmap, file)
+		fsync(aofBuffer, file)
+	})
 
 	defer listener.Close()
 	fmt.Printf("tcp server listening on port %+v\n", listener.Addr())
