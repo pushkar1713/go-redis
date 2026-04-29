@@ -1,19 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 )
-
-func endcodeResp(operation, key, value string) string {
-	operationLength := len(operation)
-	keyLenght := len(key)
-	valueLenght := len(value)
-
-	return fmt.Sprintf("*3\r\n$%d\r\n$%s\r\n$%d\r\n$%s\r\n%d\r\n$%s\r\n", operationLength, operation, keyLenght, key, valueLenght, value)
-}
 
 func aofCompaction(mmap map[string]string, file *os.File) {
 
@@ -36,4 +29,26 @@ func aofCompaction(mmap map[string]string, file *os.File) {
 			panic(err)
 		}
 	}
+}
+
+func aofRestore(file *os.File) {
+	info, err := file.Stat()
+	if err != nil {
+		panic(err)
+	}
+	if info.Size() == 0 {
+		fmt.Println("aof file is empty")
+		return
+	}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		commands := strings.Split(line, " ")
+		command1 := strings.ToUpper(commands[0])
+		set := "SET"
+		if strings.Contains(command1, set) {
+			mmap[commands[1]] = commands[2]
+		}
+	}
+
 }
