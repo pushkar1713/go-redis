@@ -21,7 +21,7 @@ func endcodeResp(operation, key, value string) string {
 func parseBulkStrings(reader *bufio.Reader) (string, error) {
 	b1, err := reader.ReadByte()
 	if rune(b1) != '$' {
-		panic("not a bulk string")
+		return "", errors.New("this is not a bulk string")
 	}
 	if err != nil {
 		return "", err
@@ -36,8 +36,18 @@ func parseBulkStrings(reader *bufio.Reader) (string, error) {
 	numArgs, err := strconv.Atoi(strings.TrimSpace(args))
 	_ = numArgs
 	// fmt.Printf("this is numArgs %+v\n", numArgs)
-	if err != nil {
-		panic(err)
+	if err != nil || numArgs <= 0 {
+
+		var newError error
+
+		if err == nil {
+			newError = errors.New(INVALID_ERR)
+
+		} else {
+			newError = err
+		}
+
+		return "", newError
 	}
 	buffer := make([]byte, numArgs)
 	res, err := io.ReadFull(reader, buffer)
