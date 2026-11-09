@@ -11,3 +11,6 @@ type Request struct {
 	commands []string
 	respChan chan string
 }
+
+const INVALID_ERR string = "-ERR invalid input\r\n"
+const INTERNAL_ERR string = "-ERR internal server error, contact dev"

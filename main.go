@@ -49,27 +49,38 @@ func handleConn(conn net.Conn) {
 	for {
 		v := Value{}
 		b1, err := reader.ReadByte()
+		//check for err first before checking if the command is array or not, otherwise a disconnected client still burn the cpu cause of continue loop
+		if err != nil {
+			fmt.Println("Hello this is eof")
+			return
+		}
 		if string(b1) != "*" {
 			// panic("the command is not an array")
 			continue
 		}
 		v.RespType = "*"
-		if err != nil {
-			panic(err)
-		}
 		// args, err := reader.ReadByte()
 		args, err := reader.ReadString('\n')
 		if err != nil {
-			panic(err)
+			conn.Write([]byte(INVALID_ERR))
+			return
 		}
 
 		// fmt.Println((string(args)))
 		numArgs, err := strconv.Atoi(strings.TrimSpace(args))
 		if err != nil {
-			panic(err)
+			fmt.Print(err)
+			conn.Write([]byte(INVALID_ERR))
+			return
 		}
 		for range numArgs {
-			parseBulkStrings(reader, &v)
+			parsedStrings, err := parseBulkStrings(reader)
+			if err != nil {
+				fmt.Print(err)
+				conn.Write([]byte(INVALID_ERR))
+				return
+			}
+			v.ProcessedArray = append(v.ProcessedArray, parsedStrings)
 		}
 
 		respChan := make(chan string)
@@ -120,7 +131,10 @@ func main() {
 
 	go func() {
 		for req := range mainChan {
-			response := handleCase(req.commands, file)
+			response, err := handleCase(req.commands, file)
+			if err != nil {
+				response = err.Error()
+			}
 			req.respChan <- response
 		}
 	}()
