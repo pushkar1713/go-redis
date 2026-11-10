@@ -141,7 +141,7 @@ func handleCase(commands []string, file *os.File) (string, error) {
 				if ok {
 					count++
 				}
-				delete(mmap, commands[1])
+				delete(mmap, commands[i])
 			}
 			// dbMutex.Unlock()
 			return fmt.Sprintf(":%d\r\n", count), nil
