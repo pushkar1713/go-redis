@@ -131,13 +131,20 @@ func handleCase(commands []string, file *os.File) (string, error) {
 		}
 	case DEL:
 		{
-			if len(commands) < 2 || len(commands) > 2 {
-				return "", errors.New("-ERR DEL commands only support 1 argument, key\r\n")
+			if len(commands) < 2 {
+				return "", errors.New("-ERR Invalid number of arguments, key\r\n")
 			}
 			// dbMutex.Lock()
-			delete(mmap, commands[1])
+			var count int
+			for i := 1; i < len(commands); i++ {
+				_, ok := mmap[commands[i]]
+				if ok {
+					count++
+				}
+				delete(mmap, commands[1])
+			}
 			// dbMutex.Unlock()
-			return ":1\r\n", nil
+			return fmt.Sprintf(":%d\r\n", count), nil
 		}
 	case EXISTS:
 		{
